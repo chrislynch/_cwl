@@ -2,6 +2,29 @@
 
 namespace cwl;
 
+if(isset($_GET['_debug'])){
+	error_reporting(-1);
+	ini_set('display_errors', 1);	
+	\cwl\engine::$debug = TRUE;
+} else {
+	error_reporting(0);
+	ini_set('display_errors', 0);	
+	\cwl\engine::$debug = FALSE;
+}
+
+if(file_exists('config.php')){
+	include('config.php');
+}
+
+class config {
+	// Configuration object to hold configuration information
+	static $db_connectString;
+	static $db_user;
+	static $db_password;
+	
+	static $nosql_tablePrefix;
+}
+
 class engine {
 
 	static $q;
@@ -29,6 +52,7 @@ class engine {
 		}
 	}
 
+	// TODO: Is this function still required?
 	static function plugin($pluginName,$path = ''){
 		if($path == ''){ $path = "_cwl/plugins/$pluginName"; }
 		self::$plugins[$pluginName] = $path;
@@ -305,7 +329,7 @@ class engine {
 		die();
 	}
 
-	static function basehref(){
+	static function basehref($HTML = FALSE){
     $indexphp = $_SERVER['PHP_SELF'];
     $indexphp = explode('/',$indexphp);
     array_pop($indexphp);
@@ -317,8 +341,13 @@ class engine {
     } else {
         $http = 'http://';
     }
-
-    return $http . self::domain() . $indexphp;
+	
+		if($HTML){
+			return '<base href="' . $http . self::domain() . $indexphp . '" />' . chr(13);
+		} else {
+			return $http . self::domain() . $indexphp;	
+		}
+    
   }
 
   static function cleanURL($string){
@@ -422,14 +451,10 @@ class engine {
 class db {
     
     private static $db;
-
-    static $connectString;
-    static $user;
-    static $password;
-    
+ 
     static public function connect(){
         try {
-            self::$db = new \PDO(self::$connectString,self::$user,self::$password);
+            self::$db = new \PDO(config::$db_connectString,config::$db_user,config::$db_password);
             // PDO::ERRMODE_SILENT
             // PDO::ERRMODE_WARNING
             // PDO::ERRMODE_EXCEPTION
@@ -584,19 +609,38 @@ class db {
 }
 
 class noSQL {
-
-	static function save($obj,$guid = '',$parent = ''){
+	
+	static function blank($template = array()){
+		return new noSQLstdClass($template);
+	}
+	
+	static function save(&$obj,$guid = '',$parent = ''){
 		if((!is_object($obj)) && (!is_array($obj))) { throw new \Exception('Cannot save a scalar value in noSQL'); }
 		// Ensure that the item or object has a guid
-		$guid = self::setGUID($obj,$guid);
+		$guid = self::setGUID($obj,$guid,$parent);
+		// Set and save the type
+		if(is_object($obj)){ 
+			self::setClass($obj); 
+			if(method_exists($obj,'noSQLbeforeSave')){
+				$obj->noSQLbeforeSave();
+			}
+		}
 		// Purge this guid from the system to destroy old data
 		self::delete($guid);
+		
 		// Save this item to the database
+		
 		foreach($obj as $key => $value){
 			if(is_object($value)){
-				// Create another object and link to it
-				$returnedGUID = self::save($value);
-				self::saveField($key,$guid,$returnedGUID,0,1);
+				// Create another object and link to it, if it contains elements/items
+				$objectTest = get_object_vars($value);
+				if(sizeof($objectTest) > 0){
+					$returnedGUID = self::save($value);
+					// TODO: Should key be blank?
+					self::saveField($key,$guid,$returnedGUID,0,1);	
+				} else {
+					self::saveField($key,$guid,'');	
+				}
 			} elseif(is_array($value)){
 				// Iterate through the values, saving accordingly.
 				foreach($value as $arraykey => $arrayvalue){
@@ -614,6 +658,9 @@ class noSQL {
 				// Normal, scalar value. Save.
 				self::saveField($key,$guid,$value);
 			}
+		}
+		if(method_exists($obj,'noSQLafterSave')){
+			$obj->noSQLafterSave();
 		}
 		return $guid;
 	}
@@ -645,14 +692,32 @@ class noSQL {
 		return $guid;
 	}
 
+	private static function setClass(&$obj){
+		if(!$obj instanceof noSQLInterface){
+			$newobj = new noSQLstdClass();
+			$newobj->absorb($obj);
+			$obj = $newobj;
+			unset($newobj);
+		}
+		
+		if(!isset($obj->_class)){
+			$obj->_class = get_class($obj);
+		}
+		if(!isset($obj->_type)){
+			$obj->_type = $obj->_class;
+		}
+		
+		return $obj->_class;
+	}
+	
 	static function load($guid){
 		// Load up the guid that we have supplied.
-		$return = new \stdClass();
+		$return = new noSQLstdClass();
 		$tables = self::tables();
 
 		foreach($tables as $table){
 			$query = db::query("SELECT * FROM '$table' WHERE guid = :guid", array(':guid' => $guid));
-			
+			$property = self::fixTableName($table);
 			$rows = array();
 			while($row = $query->fetch()){ $rows[] = $row; }
 
@@ -662,8 +727,10 @@ class noSQL {
 					break;
 				case 1:
 					// There is either a value or a pointer to a value
+					// TODO: We should check to see if the parent was originally an array. Just because there is only one entry, does not mean it was not an array before.
+					// Do this based on key
 					foreach($rows as $row){
-						$return->$table = self::rowToValue($row);
+						$return->$property = self::rowToValue($row);
 					}
 					break;
 				default:
@@ -674,7 +741,7 @@ class noSQL {
 						$value = self::rowToValue($row,TRUE);
 						$array[$key] = $value;
 					}
-					$return->$table = $array;
+					$return->$property = $array;
 					break;
 			}
 		}
@@ -721,7 +788,28 @@ class noSQL {
 		}	
 	}
 
+	private static function fixTableName($table){
+		$prefix = config::$nosql_tablePrefix;
+		$prefixLength = strlen($prefix);
+		if($prefixLength > 0){
+			if(substr($table,0,$prefixLength) == $prefix){
+				// The prefix is there. Remove the prefix
+				$table = substr($table,$prefixLength);
+			} else {
+				// The prefix is not there. Add the prefix
+				$table = $prefix . $table;
+			}
+		} else {
+			// Do nothing with the table name, it is fine as it is
+		}
+		
+		return $table;
+	}
+	
 	private static function saveField($table,$guid,$value,$key = '',$type = 0){
+		// Adjust for table prefixing
+		$table = self::fixTableName($table);
+		
 		if(!(self::table_exists($table))){ 
 			/*
 			$SQL = "
@@ -764,6 +852,112 @@ class noSQL {
 		return (array_key_exists($table, $tables));
 	}
 
+}
+
+interface noSQLInterface{
+	
+	public function guid();
+	public function typeof();
+	public function classof();
+	
+	public function noSQLbeforeSave();
+	public function noSQLafterSave();
+	public function noSQLafterLoad();
+	
+	public function absorb($obj);
+	
+}
+
+class noSQLstdClass implements noSQLInterface {
+	
+	public $_guid;
+	public $_type;
+	
+	public function guid(){ return $this->_guid; }
+	public function typeof(){ return $this->_type; }
+	public function classof() { return get_class($this); }
+	
+	function __construct($template = array()){
+		if(sizeof($template) > 0){
+			$this->absorb($template);
+		}
+	}
+	
+	function noSQLbeforeSave(){
+		return TRUE;
+	}
+	
+	function noSQLafterSave(){
+		return TRUE;
+	}
+	
+	function noSQLafterLoad(){
+		return TRUE;
+	}
+	
+	function absorb($obj){
+		foreach($obj as $property => $value){
+			$property = str_ireplace(' ','',$property);
+			$this->$property = $value;
+		}
+	}
+	
+}
+
+class file {
+
+	static function loadCSV($file){
+        // Load a CSV file into an associative array and return it
+        $return = array();
+        $csvfile = fopen($file,'r');
+        if ($csvfile){
+            $fields = fgetcsv($csvfile);
+            while($record = fgetcsv($csvfile)){
+                $newrecord = array();
+                for ($index = 0; $index < count($record); $index++) {
+                    if(isset($fields[$index])){
+                        // $newrecord[$fields[$index]] = $record[$index];    
+                        // $newrecord[$fields[$index]] = utf8_encode($record[$index]);    
+                        $newrecord[$fields[$index]] = iconv("CP1251", "UTF-8", $record[$index]);    
+                    }
+                }
+                $return[] = $newrecord;
+            }
+        } else {
+            // Send back a "FALSE" if we can't read the file
+            $return = FALSE;
+        }
+        return $return;
+    }
+
+}
+
+class http {
+	
+	static function post($url,$fields = array()){
+		//url-ify the data for the POST
+		$fields_string = '';
+		foreach($fields as $key=>$value) { $fields_string .= $key.'='.$value.'&'; }
+		rtrim($fields_string, '&');
+
+		//open connection
+		$ch = curl_init();
+
+		//set the url, number of POST vars, POST data
+		curl_setopt($ch,CURLOPT_URL, $url);
+		curl_setopt($ch,CURLOPT_POST, count($fields));
+		curl_setopt($ch,CURLOPT_POSTFIELDS, $fields_string);
+		curl_setopt($ch,CURLOPT_RETURNTRANSFER, true);
+
+		//execute post
+		$result = curl_exec($ch);
+
+		//close connection
+		curl_close($ch);
+		
+		return $result;
+	}
+	
 }
 
 ?>

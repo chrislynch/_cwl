@@ -1,0 +1,32 @@
+# Make sure we can put sites live using symlinks
+Options +FollowSymLinks
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  # RewriteBase /
+
+  # Force WWW
+  # RewriteCond %{HTTP_HOST} !^www\.
+  # RewriteRule ^(.*)$ http://www.%{HTTP_HOST}/$1 [R=301,L]
+
+  # HTTPS Everywhere
+  # Comment out this rule to enable HTTPS functionality
+  # RewriteCond %{HTTPS} off
+  # RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+
+  # HTTPS Nowhere
+  # Comment out this rule to disable HTTPS functionality
+  # RewriteCond %{HTTPS} on
+  # RewriteRule ^ http://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]  
+  
+  # Rewrite URLs of the form 'x' to the form 'index.php?e4_url=x'.
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteCond %{REQUEST_URI} !=/favicon.ico
+  # RewriteRule ^_data/ - [NC,F,L]
+  # RewriteRule ^_e/ - [NC,F,L]
+  RewriteRule ^(.*)$ index.php?q=$1 [L,QSA]
+</IfModule>
+
+# Turn pagespeed off to allow developers to refresh things
+# ModPagespeed off

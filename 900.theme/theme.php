@@ -45,6 +45,7 @@ if(!function_exists('contentBody')){
 <html>
 
 	<head>
+		<?php print cwl\engine::basehref(TRUE); ?>
 		<!-- Character set stuff -->
 		<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 		<!-- Standard inclusion of Bootstrap, JQuery, etc. -->
