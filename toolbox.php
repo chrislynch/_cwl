@@ -5,35 +5,66 @@ $toolboxLoggedIn = TRUE;
 
 class toolbox {
   
-  static function home(){
-    $matches = cwl\db::query("SELECT guid,value FROM Name ORDER BY guid DESC LIMIT 30");
+  static $config;
+   
+  static function purge(){
+    cwl\nosql::purge();
+  }
+  
+  static function home(){    
+    $matches = cwl\db::query("SELECT guid.guid,name.value as name, type.value as `type`
+                              FROM guid guid
+                              LEFT OUTER JOIN name ON name.guid = guid.guid
+                              LEFT OUTER JOIN type ON type.guid = guid.guid
+                              ORDER BY guid.guid DESC LIMIT 30");
     self::table($matches);
   }
   
   static function search(){
     /* Search for the item we looked for */
-    $matches = cwl\db::query("SELECT guid,value FROM Name WHERE value LIKE :search",array(':search' => "%{$_GET['search']}%"));
+    $matches = cwl\db::query("SELECT n.guid as guid,n.value as name,t.value as type 
+			FROM Name n
+			LEFT OUTER JOIN Type t on t.guid = n.guid
+			WHERE n.value LIKE :search",array(':search' => "%{$_GET['search']}%"));
     self::table($matches);
   }
   
   static function table($matches){
+		print "<form action='?do=table'>
+			<label>SELECT:</label><input name='select' type='text'><br>
+			<label>WHERE:</label><input name='where' type='text'><br>
+			<button type='submit'>Search</button>
+		";
     print '<table class="table table-striped table-hover ">
             <thead>
               <tr>
                 <th>#</th>
                 <th>Name</th>
+                <th>Type</th>
               </tr>
             </thead><tbody>';
     while($match = $matches->fetch()){
       print "<tr><td><a href='?do=edit&guid=" . $match['guid'] . "'>" . $match['guid'] . "</a></td>
-                <td>{$match['value']}</td>";
+                <td>{$match['name']}</td>
+                <td>{$match['type']}</td>";
     }
     print '</tbody></table>';
   }
   
-  static function create(){
-    $obj = cwl\nosql::blank();
-    self::editor($obj);
+  static function create($type = ''){
+    if($type == '') { $type = @$_GET['type']; }
+    if(strlen(trim($type)) == 0){
+      // Type has not been set.
+      print "<h1>Select new object type</h1><ul>";
+      foreach(self::$config->types as $typeKey => $type){
+        //print_r($type);
+        print "<li><a href='?do=create&type={$typeKey}'>{$type['name']}</a></li>";
+      }
+      print "</ul>";
+    } else {
+      $obj = cwl\nosql::blank(array('type' => $type));
+      self::editor($obj);
+    }
   }
   
   static function edit($guid){
@@ -47,39 +78,142 @@ class toolbox {
         toolbox::error('Item not found');
       }  
     }
-    
   }
   
   static private function editor($obj){
-    if(is_object($obj) || is_array($obj)){ $json = json_encode($obj,JSON_PRETTY_PRINT); }
-    $rows = count(explode("\n",$json)) + 2;
-
-    print '<form action="toolbox.php?do=save" method="POST" class="form-horizontal"><fieldset>';
-    if(strlen(trim($obj->_guid)) == 0){
-      print "<h1>New Object</h1>";
-    } else {
-      print "<h1>Edit Object</h1>";
-      print '<fieldset><legend>'  . trim($obj->_guid . " " . $obj->Name) . '</legend>';  
+      		
+    // Load up fields for this type
+    if(isset(self::$config->types[$obj->type])){
+			print '<form action="toolbox.php?do=save&_debug" method="POST" enctype="multipart/form-data" class="form-horizontal"><fieldset>';
+			if(strlen(trim(@$obj->guid)) == 0){
+				print "<h1>New {$obj->type}</h1>";
+			} else {
+				print "<h1>Edit Object</h1>";
+				print '<fieldset><legend>'  . trim($obj->guid . " " . @$obj->Name) . '</legend>';
+				print '<input type="hidden" name="guid" value="' . $obj->guid . '">';
+			}
+			// Hidden, mandatory, fields
+			print '<input type="hidden" name="type" value="' . $obj->type . '">';
+			print '<input type="hidden" name="class" value="' . $obj->class . '">';
+      // Configured fields
+			foreach(self::$config->types[$obj->type]['fields'] as $property => $field){
+        print '<label>' . $field['title'] . '</label><br>' ;
+        switch($field['type']){
+          case 'select':
+            if(isset($field['options'])){
+              print '<select name="' . $property . '">';
+							if(is_array($field['options'])){
+								foreach($field['options'] as $key => $value){
+									if(is_array(@$obj->$property)){
+										if(in_array($key,@$obj->$property)){ $selected = 'selected="SELECTED"'; } else { $selected = ''; }
+									} else {
+										if($key == @$obj->$property){ $selected = 'selected="SELECTED"'; } else { $selected = ''; }	
+									}
+									print '<option value="' . $key . '" ' . $selected . '>' . $value . '</option>';
+								}	
+							} else {
+								$options = cwl\db::query($field['options']);
+								while($option = $options->fetch()){
+									if(is_array(@$obj->$property)){
+										if(in_array($option['key'],@$obj->$property)){ $selected = 'selected="SELECTED"'; } else { $selected = ''; }
+									} else {
+										if($option['key'] == @$obj->$property){ $selected = 'selected="SELECTED"'; } else { $selected = ''; }	
+									}
+									print '<option value="' . $option['key'] . '" ' . $selected . '>' . $option['value'] . '</option>';
+								}
+							}
+              print '</select><br>';
+            } else {
+              print '<input name="' . $property . '" type="text" value="' . @$obj->$property . '"><br><br>';  
+            }
+            break;
+					case 'file':
+          case 'upload':
+						if(is_array(@$obj->$property)){
+							foreach($obj->$property as $value){
+								print '<input type="hidden" name="' . $property . '[]" value="' . $value . '">';
+								print "<em>{$value}</em><br>";
+							}
+						} else {
+							if(strlen(trim(@$obj->$property)) > 0){
+								print '<input type="hidden" name="' . $property . '[]" value="' . $obj->$property . '">';
+								print "<em>{$obj->$property}</em><br>";
+							}	
+						}
+            
+            print '<input type="file" name="' . $property . '[]">';
+						
+            break;
+          case 'textarea':
+            $rows = count(explode("\n",@$obj->$property)) + 2;
+            print '<textarea name="' . $property . '" class="form-control" rows="' . $rows . '">';
+            print @$obj->$property;
+            print "</textarea>";
+            break;
+          case 'text':
+          default:
+            print '<input name="' . $property . '" type="text" value="' . @$obj->$property . '"><br><br>';
+            break;
+        }
+      }
+			print '<button name="do" value="save" type="submit" class="btn btn-primary" style="margin-left:auto; margin-top: 8px">Save</button><hr>';  
+    	print "</fieldset></form>";  
     }
     
-    print '<textarea name="json" class="form-control" rows="' . $rows . '">';
-    print $json;
-    print "</textarea>";
-    print '<button name="do" value="save" type="submit" class="btn btn-primary" style="float:right; margin-top: 8px">Save</button>';
-    print "</fieldset></form>";  
+    print "<textarea>" . print_r($obj,TRUE) . "</textarea>";
+		foreach($obj as $key => $value){
+			print "<table><tr><td>$key</td><td>$value</td></tr></table>";
+		}
+  }
+  
+  static function validate(&$obj){
+		/*
+		if(isset($obj['uri'])){
+			if(strlen(trim($obj['uri'])) == 0){
+				// Set a URI
+				if(strlen(trim(@$obj['name'])) == 0){ 
+					if(@$obj['guid'] == ''){
+						$obj['name'] = $obj['guid']; 	
+					} else {
+						$obj['guid'] = uniqid();
+						$obj['name'] = $obj['guid']; 	
+					}
+				}
+				$obj['uri'] = cwl\engine::cleanURL($obj['name']);
+			}
+			// De-duplicate URI
+			$uriCount = cwl\db::result("SELECT COUNT(0) as count FROM uri WHERE value = :uri AND guid <> :guid",
+																	array(':uri' => $obj['uri'], ':guid' => $obj['guid']),0);
+			if($uriCount > 0){
+				$obj['uri'] .= "-$uriCount";
+				return self::validate($obj);
+			}
+		}
+        
+    // Always update timestamp
+   	$obj['timestamp'] = date('Y-m-d H:i:s',time());
+		*/
+    return TRUE;
   }
   
   static function save(){
-    print_r($_POST['json']);
-    $obj = json_decode($_POST['json'],TRUE);
-    if(!is_array($obj)){
-      self::error('Input data was not valid JSON');
-      self::editor($_POST['json']);
-    } else {
-      $nosqlobj = cwl\nosql::blank($obj);
-      $guid = cwl\nosql::save($nosqlobj);
-      self::edit($guid);
+		// Load the affected object
+		if(isset($_POST['guid'])){
+			$obj = cwl\nosql::load($_POST['guid']);	
+		} else {
+			$obj = cwl\nosql::blank();
+		}
+		// Save any posted files
+		cwl\files::saveFiles('_uploads',$_POST);
+		
+		// Absorb the complete posted data
+    $obj->absorb($_POST);
+				
+    if(self::validate($obj)){
+			cwl\nosql::save($obj);  
     }
+		
+		self::editor($obj);
   }
   
   static function error($errorTitle){
@@ -97,6 +231,10 @@ class toolbox {
     <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
     <!-- https://bootswatch.com/paper/ -->
     <link href="https://maxcdn.bootstrapcdn.com/bootswatch/3.3.7/paper/bootstrap.min.css" rel="stylesheet" integrity="sha384-awusxf8AUojygHf2+joICySzB780jVvQaVCAt1clU3QsyAitLGul28Qxb2r1e5g+" crossorigin="anonymous">
+    <style>
+      input,textarea { width:100%; max-height: 90% }
+      textarea { font-family: monospace; }
+    </style>
   </head>
   <body>
     <nav class="navbar navbar-inverse">
@@ -113,7 +251,7 @@ class toolbox {
 
         <div class="collapse navbar-collapse" id="bs-example-navbar-collapse-2">
           <ul class="nav navbar-nav">
-            <li><a href="?do=new">New</a></li>
+            <li><a href="?do=create">New</a></li>
             <!-- 
             <li class="dropdown">
               <a href="#" class="dropdown-toggle" data-toggle="dropdown" role="button" aria-expanded="false">Dropdown <span class="caret"></span></a>
@@ -144,17 +282,21 @@ class toolbox {
       </div>
     </nav>
     <div class="container">
-      
       <div class="row">
         <div class="col-xs-12">
           <?php
             if($toolboxLoggedIn){
               switch(@$_GET['do']){
-                case '': toolbox::home(); break;
+								case '': 
+								case 'home': 
+								case 'table': 
+									toolbox::home(); break;
+                case 'install': toolbox::install(); break;
                 case 'search': toolbox::search(); break;
-                case 'new': toolbox::create(); break;
+                case 'create': toolbox::create(); break;
                 case 'edit': toolbox::edit($_GET['guid']); break;
                 case 'save': toolbox::save(); break;
+								case 'purge': toolbox::purge(); break;
                 default:
                   print "<h1>Error</h1>";
                   print "<p>Unknown DO operator</p>";
@@ -166,6 +308,11 @@ class toolbox {
 
           ?>
         </div>
+        <!--
+        <div class="col-xs-12">
+          <pre><?php print_r(toolbox::$config) ?></pre>
+        </div>
+        -->
       </div>
     </div>
   </body>

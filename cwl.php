@@ -16,6 +16,8 @@ if(file_exists('config.php')){
 	include('config.php');
 }
 
+header("Content-Type: text/html; charset=UTF-8");
+
 class config {
 	// Configuration object to hold configuration information
 	static $db_connectString;
@@ -580,12 +582,12 @@ class db {
         return self::update($SQL,$Values);
     }
     
-    static public function result($SQL,$Values = array()){
+    static public function result($SQL,$Values = array(),$default){
        $data = self::select($SQL,$Values);
        if(!($data === FALSE)){
             return $data->fetchColumn();         
        } else {
-            return FALSE;
+            return $default;
        }
 	   
     }
@@ -618,6 +620,7 @@ class noSQL {
 		if((!is_object($obj)) && (!is_array($obj))) { throw new \Exception('Cannot save a scalar value in noSQL'); }
 		// Ensure that the item or object has a guid
 		$guid = self::setGUID($obj,$guid,$parent);
+		
 		// Set and save the type
 		if(is_object($obj)){ 
 			self::setClass($obj); 
@@ -629,14 +632,12 @@ class noSQL {
 		self::delete($guid);
 		
 		// Save this item to the database
-		
-		foreach($obj as $key => $value){
+		foreach(self::nosql_get_object_vars($obj) as $key => $value){
 			if(is_object($value)){
 				// Create another object and link to it, if it contains elements/items
-				$objectTest = get_object_vars($value);
+				$objectTest = self::nosql_get_object_vars($value);
 				if(sizeof($objectTest) > 0){
 					$returnedGUID = self::save($value);
-					// TODO: Should key be blank?
 					self::saveField($key,$guid,$returnedGUID,0,1);	
 				} else {
 					self::saveField($key,$guid,'');	
@@ -692,6 +693,14 @@ class noSQL {
 		return $guid;
 	}
 
+	private static function nosql_get_object_vars($obj){
+		if($obj instanceof noSQLInterface){
+			return $obj->asArray();
+		} else {
+			return get_object_vars($obj);
+		}
+	}
+	
 	private static function setClass(&$obj){
 		if(!$obj instanceof noSQLInterface){
 			$newobj = new noSQLstdClass();
@@ -700,14 +709,14 @@ class noSQL {
 			unset($newobj);
 		}
 		
-		if(!isset($obj->_class)){
-			$obj->_class = get_class($obj);
+		if(!isset($obj->class)){
+			$obj->class = get_class($obj);
 		}
-		if(!isset($obj->_type)){
-			$obj->_type = $obj->_class;
+		if(!isset($obj->type)){
+			$obj->type = $obj->class;
 		}
 		
-		return $obj->_class;
+		return $obj->class;
 	}
 	
 	static function load($guid){
@@ -730,7 +739,16 @@ class noSQL {
 					// TODO: We should check to see if the parent was originally an array. Just because there is only one entry, does not mean it was not an array before.
 					// Do this based on key
 					foreach($rows as $row){
-						$return->$property = self::rowToValue($row);
+						switch($row['type']){
+							case 0:
+							case 1:
+								$return->$property = self::rowToValue($row,FALSE);		
+								break;
+							case 2:
+								$array = array();
+								$array[$row['key']] = self::rowToValue($row,FALSE);
+								$return->$property = $array;	
+						}
 					}
 					break;
 				default:
@@ -802,6 +820,8 @@ class noSQL {
 		} else {
 			// Do nothing with the table name, it is fine as it is
 		}
+		// Ensure table names are lower case to avoid problems with case sensitive variations
+		$table = strtolower($table);
 		
 		return $table;
 	}
@@ -842,40 +862,33 @@ class noSQL {
 		$tables = db::query("SELECT name FROM sqlite_master WHERE type='table';");
 		$return = array();
 		while($table = $tables->fetch()){
-			$return[$table['name']] = $table['name'];
+			$return[strtoupper($table['name'])] = $table['name'];
 		}
 		return $return;
 	}
 
 	static function table_exists($table){
 		$tables = self::tables();
-		return (array_key_exists($table, $tables));
+		return (array_key_exists(strtoupper($table), $tables));
 	}
 
 }
 
 interface noSQLInterface{
 	
-	public function guid();
-	public function typeof();
-	public function classof();
-	
 	public function noSQLbeforeSave();
 	public function noSQLafterSave();
 	public function noSQLafterLoad();
 	
 	public function absorb($obj);
-	
+	public function asArray($writeArray = array(),$overwrite = FALSE);
 }
 
-class noSQLstdClass implements noSQLInterface {
+class noSQLstdClass implements noSQLInterface, \IteratorAggregate {
 	
-	public $_guid;
-	public $_type;
-	
-	public function guid(){ return $this->_guid; }
-	public function typeof(){ return $this->_type; }
-	public function classof() { return get_class($this); }
+	// protected $_guid = 0;
+	protected $_data = array();
+	protected $_dataLock = TRUE;
 	
 	function __construct($template = array()){
 		if(sizeof($template) > 0){
@@ -883,28 +896,84 @@ class noSQLstdClass implements noSQLInterface {
 		}
 	}
 	
-	function noSQLbeforeSave(){
-		return TRUE;
+	public function &__get($name) {
+		switch($name){
+			default:
+				$return =& $this->_data[$name];
+		}
+		return $return;
 	}
-	
-	function noSQLafterSave(){
-		return TRUE;
-	}
-	
-	function noSQLafterLoad(){
-		return TRUE;
-	}
-	
-	function absorb($obj){
-		foreach($obj as $property => $value){
-			$property = str_ireplace(' ','',$property);
-			$this->$property = $value;
+
+	public function __set($name, $value) {
+		switch($name){
+			case 'guid':
+				if(@$this->_data['guid'] == 0){
+					$this->_data['guid'] = $value;
+				}	else {
+					$this->_data['guid'] = $value;
+					// throw new Exception("You cannot overwrite the guid of an item");
+				}
+				break;
+			default:
+				$this->_data[$name] = $value;		
 		}
 	}
 	
+	public function __isset( $name ) {
+		return isset( $this->_data[$name] );
+	}
+	
+	public function getIterator() {
+		return new \ArrayIterator($this->_data);
+	}
+	
+	public function noSQLbeforeSave(){
+		return TRUE;
+	}
+	
+	public function noSQLafterSave(){
+		return TRUE;
+	}
+	
+	public function noSQLafterLoad(){
+		return TRUE;
+	}
+	
+	public function absorb($obj,$overwrite = FALSE){
+		$this->_dataLock = FALSE;
+		foreach($obj as $property => $value){
+			$property = str_ireplace(' ','',$property);
+			$this->_data[$property] = $value;
+		}
+		$this->_dataLock = TRUE;
+	}
+	
+	public function asArray($writeArray = array(),$overwrite = FALSE){
+		return $this->_data;
+	}
+	
+	public function asObject($writeObject = FALSE,$overwrite = FALSE){
+		$return = new \stdClass();
+		foreach($this->_data as $key => $value){
+			$return->$key = $value;
+		}
+		return $return;
+	}
+	
+	public function xml($writeXML = FALSE){
+		
+	}
+	
+	public function json($writeJSON = FALSE){
+		
+	}
+	
+	public function serial($writeSerial = FALSE){
+		
+	}
 }
 
-class file {
+class files {
 
 	static function loadCSV($file){
         // Load a CSV file into an associative array and return it
@@ -930,6 +999,64 @@ class file {
         return $return;
     }
 
+	static function saveFiles($to,&$data = array()){
+		// Grab $_FILES array
+		$files = $_FILES;
+		
+		// Make sure $to has / on the end
+		$to .= '/';
+		$to = str_ireplace('//','/',$to);
+		
+		// Loop through the files, assuming we have somewhere to put them
+		if(file_exists($to)) { 
+			foreach($files as $field => $file){
+				if(is_array($file['name'])){ 
+					foreach($file['name'] as $key => $fileArray){
+						if($file['error'][$key] == 0){
+							$newfilename = $to . "{$file['name'][$key]}";
+							if(file_exists($newfilename)){
+								$newfilename = $to . uniqid() . "-{$file['name'][$key]}";
+							}
+							move_uploaded_file($file['tmp_name'][$key], $newfilename);
+							if(!isset($data[$field])){ $data[$field] = array();}
+							$data[$field][] = $newfilename;
+						}	
+					}
+				} else {
+					if($file['error'] == 0){
+						$newfilename = $to . "{$file['name']}";
+						if(file_exists($newfilename)){
+							$newfilename = $to . uniqid() . "-{$file['name']}";
+						}
+						move_uploaded_file($file['tmp_name'], $newfilename);
+						if(isset($data[$field])){
+							if(is_array($data[$field])){
+								$data[$field][] = $newfilename;
+							}	else {
+								$data[$field] = $newfilename;		
+							}
+						} else {
+							$data[$field] = $newfilename;	
+						}
+					} else {
+						// TODO: Handle file upload errors.
+					}	
+				}	
+			}
+		} else {
+			// TODO: Error out 
+		}
+		
+		// Tidy up array
+		foreach($data[$field] as $key => $value){
+			if(strlen(trim($value)) == 0){
+				unset($data[$field][$key]);
+			}
+		}	
+		
+		return $data;
+	}
+	
 }
 
 class http {
