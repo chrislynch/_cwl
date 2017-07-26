@@ -11,42 +11,64 @@ class toolbox {
     cwl\nosql::purge();
   }
   
-  static function home(){    
-    $matches = cwl\db::query("SELECT guid.guid,name.value as name, type.value as `type`
-                              FROM guid guid
-                              LEFT OUTER JOIN name ON name.guid = guid.guid
-                              LEFT OUTER JOIN type ON type.guid = guid.guid
-                              ORDER BY guid.guid DESC LIMIT 30");
-    self::table($matches);
+  static function home(){ 
+		if(cwl\nosql::table_exists('_index')){
+			$matches = cwl\db::query("SELECT * FROM _index ORDER BY timestamp DESC");
+			self::table($matches);	
+		} else {
+			print "<h1>Welcome</h1>";
+			print "<p>Database is currently empty. Please add or import data.</p>";
+		}
   }
   
   static function search(){
     /* Search for the item we looked for */
-    $matches = cwl\db::query("SELECT n.guid as guid,n.value as name,t.value as type 
-			FROM Name n
-			LEFT OUTER JOIN Type t on t.guid = n.guid
-			WHERE n.value LIKE :search",array(':search' => "%{$_GET['search']}%"));
-    self::table($matches);
+    $matches = cwl\db::query("
+			SELECT * 
+			FROM _index i
+			WHERE i.name LIKE :search OR i.guid = :guid",
+			array(':search' => "%{$_GET['search']}%",
+						':guid' => $_GET['search'])
+			);
+    
+		self::table($matches);
   }
   
   static function table($matches){
+		/*
 		print "<form action='?do=table'>
 			<label>SELECT:</label><input name='select' type='text'><br>
 			<label>WHERE:</label><input name='where' type='text'><br>
 			<button type='submit'>Search</button>
 		";
-    print '<table class="table table-striped table-hover ">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Name</th>
-                <th>Type</th>
-              </tr>
-            </thead><tbody>';
+		*/
+    print '<table class="table table-striped table-hover ">';
+		$firstRow = TRUE;
     while($match = $matches->fetch()){
-      print "<tr><td><a href='?do=edit&guid=" . $match['guid'] . "'>" . $match['guid'] . "</a></td>
-                <td>{$match['name']}</td>
-                <td>{$match['type']}</td>";
+			if($firstRow){
+				print '<thead><tr>';
+				foreach($match as $key => $value){
+					print "<th>$key</th>";
+				}
+				print '</tr></thead><tbody>';
+				$firstRow = FALSE;
+			}
+			print '<tr>';
+			foreach($match as $key => $value){
+				print "<td>";
+				switch($key){
+					case 'guid': 
+						print "<a href='?do=edit&guid=" . $value . "'>" . $value . "</a>";
+						break;
+					case 'uri':
+						print "<a href='" . $value . "'>" . $value . "</a>";
+						break;
+					default:
+						print $value;
+				}
+				print "</td>";
+			}
+			print '</tr>';
     }
     print '</tbody></table>';
   }
@@ -160,10 +182,12 @@ class toolbox {
     	print "</fieldset></form>";  
     }
     
-    print "<textarea>" . print_r($obj,TRUE) . "</textarea>";
-		foreach($obj as $key => $value){
-			print "<table><tr><td>$key</td><td>$value</td></tr></table>";
-		}
+		/*
+		$printr = print_r($obj,TRUE);
+		$rows = substr_count( $printr, "\n" ) + 2;
+    print "<textarea rows='$rows'>" . print_r($obj,TRUE) . "</textarea>";
+		*/
+		print "<pre>" . print_r($obj,TRUE) . "</pre>";
   }
   
   static function validate(&$obj){

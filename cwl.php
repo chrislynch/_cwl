@@ -12,11 +12,32 @@ if(isset($_GET['_debug'])){
 	\cwl\engine::$debug = FALSE;
 }
 
+/***********************************/
+
+function cwl_shutdown(){
+	try {
+		$error = error_get_last(); 
+		if($error['type'] == E_ERROR){
+			session_destroy();
+			session_start();
+			$_SESSION['error'] = $error;
+			header('HTTP/1.1 501 Internal Server Error');
+    	header('Status: 501 Internal Server Error');
+    	header('Location: error.php',501);
+    	die();
+		}
+	} catch (Exception $e) {
+		// Do nothing if shutdown fails
+	}
+}
+
+register_shutdown_function("cwl\cwl_shutdown");
+
+/***********************************/
+
 if(file_exists('config.php')){
 	include('config.php');
 }
-
-header("Content-Type: text/html; charset=UTF-8");
 
 class config {
 	// Configuration object to hold configuration information
@@ -280,7 +301,13 @@ class engine {
 
 	static function parray($i){
 		$return = explode("/",self::$p);
-		return @$return[$i];
+		if($i >= 0){
+			return @$return[$i];	
+		} else {
+			$return = array_reverse($return);
+			$i++;
+			return @$return[$i];
+		}
 	}
 
 	static function isValidBaseDirectory($directory,$allowProtected = FALSE){
@@ -324,6 +351,10 @@ class engine {
 
 	static function domain(){
 		return $_SERVER['SERVER_NAME'];
+	}
+	
+	static function url($withParameters = FALSE){
+		return ( isset($_SERVER['HTTPS']) && $_SERVER['HTTPS']=='on' ? 'https' : 'http' ) . '://' .  $_SERVER['HTTP_HOST'];
 	}
 
 	static function redirect($url,$status = 303){
@@ -512,8 +543,17 @@ class db {
     }
     
     static public function query($SQL,$Values = array()){
-        return self::select($SQL,$Values);
+    	return self::select($SQL,$Values);
     }
+	
+		static public function row($SQL,$Values = array()){
+			$rows = self::query($SQL,$Values);
+			if($row = $rows->fetch()){
+				return $row;
+			} else {
+				return array();
+			}
+		}
     
     static public function pageselect($SQL,$Values = array(),&$pagecount = FALSE,$pagelength = 10,$pagenumber = -1){
         // Safety checks
@@ -616,56 +656,79 @@ class noSQL {
 		return new noSQLstdClass($template);
 	}
 	
-	static function save(&$obj,$guid = '',$parent = ''){
+	static function save(&$obj,$childObject = FALSE){
 		if((!is_object($obj)) && (!is_array($obj))) { throw new \Exception('Cannot save a scalar value in noSQL'); }
 		// Ensure that the item or object has a guid
-		$guid = self::setGUID($obj,$guid,$parent);
+		// $guid = self::setGUID($obj,$guid,$parent);
 		
 		// Set and save the type
+		$beforeSaveOK = TRUE;
 		if(is_object($obj)){ 
 			self::setClass($obj); 
 			if(method_exists($obj,'noSQLbeforeSave')){
-				$obj->noSQLbeforeSave();
+				$beforeSaveOK = $obj->noSQLbeforeSave();
+			} else {
+				$beforeSaveOK = FALSE;
 			}
 		}
+		$guid = $obj->guid;
+		
+		if(!$childObject && !$beforeSaveOK) { return FALSE; } // Bomb out if we can't validate the object
+		
 		// Purge this guid from the system to destroy old data
 		self::delete($guid);
 		
 		// Save this item to the database
-		foreach(self::nosql_get_object_vars($obj) as $key => $value){
+		foreach($obj as $key => $value){
 			if(is_object($value)){
 				// Create another object and link to it, if it contains elements/items
-				$objectTest = self::nosql_get_object_vars($value);
+				$objectTest = get_object_vars($value);
 				if(sizeof($objectTest) > 0){
-					$returnedGUID = self::save($value);
-					self::saveField($key,$guid,$returnedGUID,0,1);	
+					$returnedGUID = self::save($value,TRUE);
+					self::saveField($key,$guid,$returnedGUID,'',1,$obj);	
 				} else {
-					self::saveField($key,$guid,'');	
+					self::saveField($key,$guid,$value,'',0,$obj->type);	
 				}
 			} elseif(is_array($value)){
 				// Iterate through the values, saving accordingly.
 				foreach($value as $arraykey => $arrayvalue){
 					if(is_object($arrayvalue)){
-						$returnedGUID = self::save($arrayvalue);
-						self::saveField($key,$guid,$returnedGUID,$arraykey,1);
+						$returnedGUID = self::save($arrayvalue,TRUE);
+						self::saveField($key,$guid,$returnedGUID,$arraykey,1,$obj);
 					} elseif(is_array($arrayvalue)) {
 						$returnedGUID = self::save($arrayvalue);
-						self::saveField($key,$guid,$returnedGUID,$arraykey,2);
+						self::saveField($key,$guid,$returnedGUID,$arraykey,2,$obj);
 					} else {
-						self::saveField($key,$guid,$arrayvalue,$arraykey,0);
+						self::saveField($key,$guid,$arrayvalue,$arraykey,0,$obj);
 					}
 				}
 			} else {
 				// Normal, scalar value. Save.
-				self::saveField($key,$guid,$value);
+				self::saveField($key,$guid,$value,'',0,$obj);
 			}
 		}
+		
+		// Populate the index
+		if(!$childObject){
+			if(!(self::table_exists('_index'))){
+				db::query("
+					CREATE TABLE '_index' ('guid' TEXT PRIMARY KEY NOT NULL, 'type' TEXT, 'class' TEXT, 
+					'name' TEXT, 'uri' TEXT, 
+					'status' INTEGER NOT NULL DEFAULT 0, 'flag' INTEGER NOT NULL DEFAULT 0, 'rank' INTEGER NOT NULL DEFAULT 0, 'system' INTEGER NOT NULL DEFAULT 0, 
+					'timestamp' DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)");
+			}
+			db::insert("REPLACE INTO _index(guid,type,class,name,uri,status,flag,rank,system)
+								 VALUES(:guid,:type,:class,:name,:uri,:status,:flag,:rank,:system)", 
+								 array($obj->guid,$obj->type,$obj->class,$obj->name,$obj->uri,$obj->status,$obj->flag,$obj->rank,$obj->system));
+		}
+		
 		if(method_exists($obj,'noSQLafterSave')){
 			$obj->noSQLafterSave();
 		}
 		return $guid;
 	}
 
+	/*
 	private static function setGUID(&$obj,$guid,$parent){
 		// Read the guid from the item if we have not been told what it is (or should be)
 		if(strlen(trim($guid)) == 0){
@@ -692,14 +755,7 @@ class noSQL {
 		// Return the guid
 		return $guid;
 	}
-
-	private static function nosql_get_object_vars($obj){
-		if($obj instanceof noSQLInterface){
-			return $obj->asArray();
-		} else {
-			return get_object_vars($obj);
-		}
-	}
+	*/
 	
 	private static function setClass(&$obj){
 		if(!$obj instanceof noSQLInterface){
@@ -721,47 +777,59 @@ class noSQL {
 	
 	static function load($guid){
 		// Load up the guid that we have supplied.
-		$return = new noSQLstdClass();
+		
+		$indexData = db::row("SELECT type,class FROM _index WHERE guid = :guid",array(':guid' => $guid));
+		
+		$return = new $indexData['class'];
 		$tables = self::tables();
 
+		$tableprefix = $indexData['type'] . '_';
+		
 		foreach($tables as $table){
-			$query = db::query("SELECT * FROM '$table' WHERE guid = :guid", array(':guid' => $guid));
-			$property = self::fixTableName($table);
-			$rows = array();
-			while($row = $query->fetch()){ $rows[] = $row; }
-
-			switch(sizeof($rows)){
-				case 0:
-					// Do nothing, there is no data in this table for us.
-					break;
-				case 1:
-					// There is either a value or a pointer to a value
-					// TODO: We should check to see if the parent was originally an array. Just because there is only one entry, does not mean it was not an array before.
-					// Do this based on key
-					foreach($rows as $row){
-						switch($row['type']){
-							case 0:
-							case 1:
-								$return->$property = self::rowToValue($row,FALSE);		
-								break;
-							case 2:
-								$array = array();
-								$array[$row['key']] = self::rowToValue($row,FALSE);
-								$return->$property = $array;	
-						}
-					}
-					break;
-				default:
-					// There are multiple values. Therefore, we need an array
-					$array = array();
-					foreach($rows as $row){
-						$key = $row['key'];
-						$value = self::rowToValue($row,TRUE);
-						$array[$key] = $value;
-					}
-					$return->$property = $array;
-					break;
+			// Decide if we are loading this table
+			if(stripos($table,'_') === 0) {
+				$loadTable = FALSE;
+			} elseif (stripos($table,$tableprefix) === 0) {
+				$loadTable = TRUE;
+			} else {
+				$loadTable = FALSE;
 			}
+			
+			if($loadTable){
+				$query = db::query("SELECT * FROM '$table' WHERE guid = :guid", array(':guid' => $guid));
+				$property = substr($table,strlen($tableprefix));
+				$rows = array();
+				while($row = $query->fetch()){ $rows[] = $row; }
+					switch(sizeof($rows)){
+						case 0:
+							// Do nothing, there is no data in this table for us.
+							break;
+						case 1:
+							foreach($rows as $row){
+								switch($row['type']){
+									case 0:
+									case 1:
+										$return->$property = self::rowToValue($row,FALSE);		
+										break;
+									case 2:
+										$array = array();
+										$array[$row['key']] = self::rowToValue($row,FALSE);
+										$return->$property = $array;	
+								}
+							}
+							break;
+						default:
+							// There are multiple values. Therefore, we need an array
+							$array = array();
+							foreach($rows as $row){
+								$key = $row['key'];
+								$value = self::rowToValue($row,TRUE);
+								$array[$key] = $value;
+							}
+							$return->$property = $array;
+							break;
+					}	
+				}
 		}
 
 		return $return;
@@ -826,36 +894,28 @@ class noSQL {
 		return $table;
 	}
 	
-	private static function saveField($table,$guid,$value,$key = '',$type = 0){
+	private static function saveField($table,$guid,$value,$key,$type,$obj){
 		// Adjust for table prefixing
 		$table = self::fixTableName($table);
-		
+		$table = $obj->type . '_' . $table;
 		if(!(self::table_exists($table))){ 
-			/*
 			$SQL = "
 				CREATE TABLE '$table' (
 				    'guid' TEXT NOT NULL,
+						'objecttype' TEXT NOT NULL,
 				    'key' TEXT,
 				    'value' TEXT,
 				    'type' INTEGER DEFAULT (0),
-				    'timestamp' DATETIME DEFAULT CURRENT_TIMESTAMP
-				);
-				CREATE UNIQUE INDEX '{$table}_PK' on $table (guid ASC, key ASC);";
-			*/
-			$SQL = "
-				CREATE TABLE '$table' (
-				    'guid' TEXT NOT NULL,
-				    'key' TEXT,
-				    'value' TEXT,
-				    'type' INTEGER DEFAULT (0)
+						'timestamp' DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 				);
 				CREATE UNIQUE INDEX '{$table}_PK' on $table (guid ASC, key ASC);";
 			db::query($SQL);
 		}
 		$SQL = "
-			REPLACE INTO '$table'(guid,value,key,type)
-			VALUES(:guid,:value,:key,:type);";
-		db::insert($SQL, array(':guid' => $guid, ':value' => $value, ':key' => $key, ':type' => $type));
+			REPLACE INTO '$table'(guid,objecttype,value,key,type)
+			VALUES(:guid,:objecttype,:value,:key,:type);";
+		
+		db::insert($SQL, array(':guid' => $guid, ':objecttype' => $obj->type, ':value' => $value, ':key' => $key, ':type' => $type));
 	}
 
 	static function tables($pattern = ''){
@@ -870,6 +930,71 @@ class noSQL {
 	static function table_exists($table){
 		$tables = self::tables();
 		return (array_key_exists(strtoupper($table), $tables));
+	}
+	
+	static function search($params, $pager = FALSE){
+		// Test pager
+		if(!$pager === FALSE){ if(class_name($pager) !== 'noSQLpager'){	throw new \Exception("Invalid pager object"); } }
+		
+		$indexFields = array('guid','type','class','name','uri','status','flag','rank','system');
+		
+		$sqlParams = array();
+		$JOIN = '';
+		$WHERE = '';
+		$j = 1;
+		
+		foreach($params as $param => $value){
+			if(stripos($param,'_') === 0){
+				// Param starts with _ - this is an escape parameter and does a special job.
+				// We need to pick these up before we build our main query
+				switch(strtolower($param)){
+					case '_type': $sqlParams[':type'] = $value; break;
+				}
+			}
+		}
+		
+		foreach($params as $param => $value) {
+			// Type is a special parameter that unlocks deeper joining, so go look for it first.
+			if($param == 'type'){
+				$WHERE .= " AND i.type = :type";
+				$sqlParams[':type'] = $value;
+				unset($params['type']);
+			}
+		}
+		
+		foreach($params as $param => $value) {
+			if(!(stripos($param,'_') === 0)){
+				if(in_array($param,$indexFields)){
+					$WHERE .= " AND $param = :{$param} ";
+					$sqlParams[$param] = $value;
+				} else {
+					if(isset($sqlParams[':type'])){
+						$JOIN .= " JOIN {$sqlParams[':type']}_{$param} j{$j} ON j{$j}.guid = i.guid ";
+						if(is_array($value)){
+							// Should be array of op and value
+						} else {
+							// Default operator is = 
+							$WHERE .= " AND j{$j}.value = :j{$j} ";
+							$sqlParams["j{$j}"] = $value;
+						}
+						$j++;		
+					}
+				}	
+			}
+		}
+		
+		if(sizeof($sqlParams) == 0){
+			throw new \Exception("No search criteria supplied");
+		}
+		
+		$SELECT = "SELECT i.* FROM _index i \n";
+		$SELECT .= $JOIN;
+		$SELECT .= "\n WHERE 1 = 1 \n";
+		$SELECT .= $WHERE;
+		
+		print $SELECT;
+		
+		return \cwl\db::query($SELECT,$sqlParams);
 	}
 
 }
@@ -891,13 +1016,34 @@ class noSQLstdClass implements noSQLInterface, \IteratorAggregate {
 	protected $_dataLock = TRUE;
 	
 	function __construct($template = array()){
+		// Set defaults
+		$this->guid = '';
+		$this->type = '';
+		$this->class = get_class($this);
+		$this->name = '';
+		$this->uri = '';
+		$this->status = 0;
+		$this->flag = 0;
+		$this->rank = 0;
+		$this->system = 0;
+		// Absorb any template items
 		if(sizeof($template) > 0){
 			$this->absorb($template);
 		}
 	}
 	
 	public function &__get($name) {
-		switch($name){
+		switch(strtolower($name)){
+			/*
+			case 'class':
+				return get_class($this);
+				break;
+			case 'type':
+				if(strlen(trim($this->_data['type'])) == 0){
+					return 'unknown';
+				}
+				break;
+			*/
 			default:
 				$return =& $this->_data[$name];
 		}
@@ -905,7 +1051,9 @@ class noSQLstdClass implements noSQLInterface, \IteratorAggregate {
 	}
 
 	public function __set($name, $value) {
+		$name = strtolower($name);
 		switch($name){
+			/*
 			case 'guid':
 				if(@$this->_data['guid'] == 0){
 					$this->_data['guid'] = $value;
@@ -914,6 +1062,10 @@ class noSQLstdClass implements noSQLInterface, \IteratorAggregate {
 					// throw new Exception("You cannot overwrite the guid of an item");
 				}
 				break;
+			case 'class':
+				throw new Exception("You cannot overwrite the class of an item");
+				break;
+			*/
 			default:
 				$this->_data[$name] = $value;		
 		}
@@ -928,6 +1080,19 @@ class noSQLstdClass implements noSQLInterface, \IteratorAggregate {
 	}
 	
 	public function noSQLbeforeSave(){
+		$return = TRUE;
+		if($this->guid == ''){
+			$this->guid = uniqid();
+		}
+		/*
+		if($this->name == ''){
+			$this->name = $this->guid;
+		}
+		
+		if($this->system == 0){
+			if($this->uri == )
+		}
+		*/
 		return TRUE;
 	}
 	
@@ -971,6 +1136,12 @@ class noSQLstdClass implements noSQLInterface, \IteratorAggregate {
 	public function serial($writeSerial = FALSE){
 		
 	}
+}
+
+class noSQLpager {
+	var $pages;
+	var $page;
+	var $pagelength;
 }
 
 class files {
