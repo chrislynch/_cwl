@@ -2,8 +2,7 @@
   <div id='maincontent' class='col-xs-12'>
     <?php
       if($result->format == 'image'){
-        print "<img src='{$result->image[0]}' style='width:100%'>";
-        print "<h1>{$result->name}</h1>";
+        print "<img src='{$result->image[0]}' style='width:100%'><br><br>";
       } elseif($result->format == 'gallery') {
         gallery($result);
       } elseif($result->format == 'video'){

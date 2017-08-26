@@ -2,7 +2,7 @@
 <?php
 // Placeholder
 if(strlen(@$result->image[0]) == 0){
-  $result->image = array(0 => "http://loremflickr.com/g/320/240/" . str_ireplace('-',',',$result->uri));
+  $result->image = array(0 => "https://loremflickr.com/g/320/240/" . str_ireplace('-',',',$result->uri));
 }
   
 switch($result->format){

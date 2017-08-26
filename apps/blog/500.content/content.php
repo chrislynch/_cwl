@@ -76,10 +76,10 @@ while($result = $query->fetch()){
   switch($outputmode){
     case 1:
       // Single item
-      $result->html = implode("",$result->html);
       $seo->title = $result->name . " | " . $seo->title;
       $seo->description = strip_tags(str_ireplace('"','',$result->html[0]));
       $seo->h1 = $result->name;
+      $result->html = implode("",$result->html);
       $toolboxLink = 'toolbox.php?do=edit&guid=' . $result->guid;
       break;
       
@@ -181,6 +181,9 @@ include('_templates/widgets.inc');
         margin-top: 22px;
       }
     </style>
+    <?php
+      print \cwl\config::get('htmlheader');
+    ?>
   </head>
   <body>
     

@@ -7,7 +7,22 @@ class config {
 	static $db_user;
 	static $db_password;
 	
-	static $nosql_tablePrefix;
+	static private $parameters = array();
+	
+	static function get($parameterName,$defaultValue = ''){
+		if(isset(self::$parameters[$parameterName])){
+			return self::$parameters[$parameterName];
+		} else {
+			return $defaultValue;
+		}
+	}
+	
+	static function set($parameterName,$newValue) {
+		self::$parameters[$parameterName] = $newValue;
+	}
+	
 }
+
+
 
 ?>
