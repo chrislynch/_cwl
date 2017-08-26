@@ -7,8 +7,8 @@
    Using SQLite?
    =============
    
-   apt-get install php5-sqlite
-   
+   14.04 = apt-get install php5-sqlite
+   16.04 = sudo apt-get install php-sqlite3
    
    http://php.net/manual/en/ref.pdo-sqlite.connection.php
    

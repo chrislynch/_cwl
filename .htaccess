@@ -1,5 +1,20 @@
+# SECURITY
+# ========
+
 # Make sure we can put sites live using symlinks
 Options +FollowSymLinks
+
+# Prevent directory browsing without a forbidden message
+IndexIgnore *
+
+# Protect hidden files, like .htaccess
+<FilesMatch "^\.">
+  Deny from all
+</FilesMatch>
+
+
+# REDIRECTION
+# ===========
 
 <IfModule mod_rewrite.c>
   RewriteEngine On
