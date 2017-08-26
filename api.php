@@ -171,25 +171,27 @@ function api_get(){
 function api_get_rss(){
 	$results = cwl\nosql::search($_GET);
 	
-	//header("Content-Type: text/xml; charset=UTF-8");
+	header("Content-Type: text/xml; charset=UTF-8");
 	print '<?xml version="1.0" encoding="UTF-8" ?>
 <rss version="2.0">
-
 <channel>
   <title>RSS Feed</title>
   <link>' . cwl\engine::url()  . '</link>
-  <description>RSS Feed for ' . cwl\engine::url() . '</description>';
+  <description>RSS Feed for ' . cwl\engine::url() . '</description>\n';
 	
 	foreach($results as $result){
+		if(!(stripos(trim($result['uri']),'http') === 0)){
+			$result['uri'] = cwl\engine::basehref() . trim($result['uri']);
+		}
 		print '<item>
-			<guid>' . cwl\engine::domain() . $result['uri'] . '</guid>		
+			<guid>' . $result['uri'] . '</guid>		
 			<title>' . $result['name'] . '</title>
-			<link>' . cwl\engine::domain() . $result['uri'] . '</link>
+			<link>' . $result['uri'] . '</link>
   	</item>';
 	}
   	
 	print '
-	</channel>
+</channel>
 </rss>';
 }
 

@@ -1,7 +1,6 @@
 <?php
 $_GET['_debug'] = TRUE;
 include('cwl.php');
-$toolboxLoggedIn = TRUE;
 
 class toolbox {
   
@@ -10,6 +9,29 @@ class toolbox {
   static function purge(){
     cwl\nosql::purge();
   }
+	
+	static function unlock($username,$password){
+		// Unlock the toolbox for this user
+		if(md5($password) == @self::$config->users[$username]['password']){
+			setcookie('cwlToolboxID',$username,0,'/');
+			$_SESSION['cwlToolboxID'] = $username;		
+			return TRUE;
+		} else {
+			self::lock();
+			return FALSE;
+		}
+	}
+	
+	static function lock(){
+		// Lock the toolbox
+		setcookie('cwlToolboxID','',(time() - 1),'/');
+		unset($_SESSION['cwlToolboxID']);
+	}
+	
+	static function isOpen(){
+		// Check if the toolbox is open or not
+		return(strlen(@$_COOKIE['cwlToolboxID']) > 0 || strlen(@$_SESSION['cwlToolboxID']) > 0 );
+	}
   
   static function home(){ 
 		if(cwl\nosql::table_exists('_index')){
@@ -173,8 +195,15 @@ class toolbox {
             print "</textarea>";
             break;
           case 'text':
+					case 'uri':
           default:
-            print '<input name="' . $property . '" type="text" value="' . @$obj->$property . '"><br><br>';
+            print '<input name="' . $property . '" type="text" value="' . @$obj->$property . '"><br>';
+						if($field['type'] == 'uri'){
+							if(strlen(@$obj->$property) > 0){
+								print "<small><a href='{$obj->$property}'>Click here to visit this URI</a></small><br>";
+							} 
+						}
+						print '<br>';
             break;
         }
       }
@@ -297,11 +326,11 @@ class toolbox {
             </div>
             <button name="do" value="search" type="submit" class="btn btn-default">Search</button>
           </form>
-          <!--
+          
           <ul class="nav navbar-nav navbar-right">
-            <li><a href="#">Link</a></li>
+            <li><a href="?do=logout">Log Out</a></li>
           </ul>
-          -->
+          
         </div>
       </div>
     </nav>
@@ -309,7 +338,7 @@ class toolbox {
       <div class="row">
         <div class="col-xs-12">
           <?php
-            if($toolboxLoggedIn){
+            if(toolbox::isOpen()){
               switch(@$_GET['do']){
 								case '': 
 								case 'home': 
@@ -321,15 +350,26 @@ class toolbox {
                 case 'edit': toolbox::edit($_GET['guid']); break;
                 case 'save': toolbox::save(); break;
 								case 'purge': toolbox::purge(); break;
+								case 'logout': toolbox::lock(); cwl\engine::redirect('toolbox.php'); break;
                 default:
                   print "<h1>Error</h1>";
                   print "<p>Unknown DO operator</p>";
               }  
             } else {
-              print "<h1>Log In</h1>";
-              print "<p>&nbsp;</p><p>&nbsp;</p><p>&nbsp;</p><p>&nbsp;</p><p>&nbsp;</p><p>&nbsp;</p><p>&nbsp;</p><p>&nbsp;</p><p>&nbsp;</p><p>&nbsp;</p><p>&nbsp;</p><p>&nbsp;</p>";
+							switch(@$_GET['do']){
+								case 'login':
+									toolbox::unlock($_POST['username'],$_POST['password']);
+									cwl\engine::redirect('toolbox.php'); 
+									break;
+								default:
+									print "<h1>Log In</h1>";
+									print "<form action='?do=login' method='POST'>";
+									print "<label>Username</label><br><input type='text' name='username'><br><br>";
+									print "<label>Password</label><br><input type='password' name='password'><br><br>";
+									print "<button type='submit'>Log In</button>";
+									print "</form>";
+							}
             }
-
           ?>
         </div>
         <!--
