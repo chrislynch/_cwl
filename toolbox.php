@@ -196,8 +196,18 @@ class toolbox {
             break;
           case 'text':
 					case 'uri':
+					case 'csv':
           default:
-            print '<input name="' . $property . '" type="text" value="' . @$obj->$property . '"><br>';
+						if($field['type'] == 'csv'){
+							if(is_array(@$obj->$property)){
+								$value = implode(', ',@$obj->$property);	
+							} else {
+								$value = '';	
+							}
+						} else {
+							$value = @$obj->$property;
+						}
+            print '<input name="' . $property . '" type="text" value="' . $value . '"><br>';
 						if($field['type'] == 'uri'){
 							if(strlen(@$obj->$property) > 0){
 								print "<small><a href='{$obj->$property}'>Click here to visit this URI</a></small><br>";
@@ -220,32 +230,14 @@ class toolbox {
   }
   
   static function validate(&$obj){
-		/*
-		if(isset($obj['uri'])){
-			if(strlen(trim($obj['uri'])) == 0){
-				// Set a URI
-				if(strlen(trim(@$obj['name'])) == 0){ 
-					if(@$obj['guid'] == ''){
-						$obj['name'] = $obj['guid']; 	
-					} else {
-						$obj['guid'] = uniqid();
-						$obj['name'] = $obj['guid']; 	
-					}
+		foreach(self::$config->types[$obj->type]['fields'] as $property => $field){
+			if($field['type'] == 'csv'){
+				$obj->$property = explode(',',@$obj->$property);
+				foreach($obj->$property as $key => $value){
+					$obj->$property[$key] = trim($value);
 				}
-				$obj['uri'] = cwl\engine::cleanURL($obj['name']);
-			}
-			// De-duplicate URI
-			$uriCount = cwl\db::result("SELECT COUNT(0) as count FROM uri WHERE value = :uri AND guid <> :guid",
-																	array(':uri' => $obj['uri'], ':guid' => $obj['guid']),0);
-			if($uriCount > 0){
-				$obj['uri'] .= "-$uriCount";
-				return self::validate($obj);
-			}
+			}	
 		}
-        
-    // Always update timestamp
-   	$obj['timestamp'] = date('Y-m-d H:i:s',time());
-		*/
     return TRUE;
   }
   
