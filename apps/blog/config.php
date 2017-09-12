@@ -33,7 +33,8 @@ if(class_exists('toolbox')){
   $toolboxConfig->types['post']['fields']['format']['type'] = 'select';
   $toolboxConfig->types['post']['fields']['format']['options'] = array('post' => 'Post', 'image' => 'Image', 'gallery' => 'Gallery', 
                                                                        'link' => 'Link', 'video' => 'Video', 'audio' => 'Audio',
-                                                                       'quote' => 'Quote', 'aside' => 'Aside');
+                                                                       'quote' => 'Quote', 'aside' => 'Aside', 'status' => 'Status',
+                                                                        'social' => 'Social');
   
   $toolboxConfig->types['post']['fields']['promoted'] = array();
   $toolboxConfig->types['post']['fields']['promoted']['title'] = 'Post Promotion';

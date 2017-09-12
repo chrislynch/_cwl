@@ -216,6 +216,7 @@ class noSQL {
 		foreach($tables as $table){
 			db::delete("DELETE FROM $table WHERE guid = :guid",array(':guid' => $guid));
 		}
+		db::delete("DELETE FROM _index WHERE guid = :guid",array(':guid' => $guid));
 	}
 
 	static function purge(){
@@ -226,6 +227,7 @@ class noSQL {
 	}
 
 	private static function fixTableName($table){
+		/*
 		$prefix = config::$nosql_tablePrefix;
 		$prefixLength = strlen($prefix);
 		if($prefixLength > 0){
@@ -239,6 +241,7 @@ class noSQL {
 		} else {
 			// Do nothing with the table name, it is fine as it is
 		}
+		*/
 		// Ensure table names are lower case to avoid problems with case sensitive variations
 		$table = strtolower($table);
 		
@@ -269,17 +272,21 @@ class noSQL {
 		db::insert($SQL, array(':guid' => $guid, ':objecttype' => $obj->type, ':value' => $value, ':key' => $key, ':type' => $type));
 	}
 
-	static function tables($pattern = ''){
+	static function tables($filterOff = FALSE){
 		$tables = db::query("SELECT name FROM sqlite_master WHERE type='table';");
 		$return = array();
 		while($table = $tables->fetch()){
-			$return[strtoupper($table['name'])] = $table['name'];
+			if(stripos($table['name'],'_') === 0 && !$filterOff) {
+				// Ignore tables prefixed with _	
+			} else {
+				$return[strtoupper($table['name'])] = $table['name'];	
+			}
 		}
 		return $return;
 	}
 
 	static function table_exists($table){
-		$tables = self::tables();
+		$tables = self::tables(TRUE);
 		return (array_key_exists(strtoupper($table), $tables));
 	}
 	

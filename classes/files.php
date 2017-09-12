@@ -75,13 +75,6 @@ class files {
 			// TODO: Error out 
 		}
 		
-		// Tidy up array
-		foreach($data[$field] as $key => $value){
-			if(strlen(trim($value)) == 0){
-				unset($data[$field][$key]);
-			}
-		}	
-		
 		return $data;
 	}
 	

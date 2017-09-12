@@ -6,11 +6,35 @@ class engine {
 	static $q;
 	static $p;
 	static $directories = array();
+	static $plugins = array();
 	static $output = array();
-	static $settings = array();
 	static $debug = FALSE;
+	static $on = FALSE;
 
+	static function init(){
+		// Load global app, domain app, global config, app/plugin config, domain config in tHAT order!
+		
+		// Global app file
+		if(file_exists('app.php')){ require_once('app.php'); }
+		// Domain specific app file
+		if(file_exists(engine::domain() . '/app.config')){ require_once(engine::domain() . '/app.config'); }
+		// Global config
+		if(file_exists('config.php')){ require_once('config.php'); }
+		// App configs
+		foreach(self::$plugins as $plugin){
+			if(file_exists("$plugin/config.php")) { require_once "$plugin/config.php"; }
+		}
+		// Site specific config
+		if(file_exists(engine::domain() . '/app.config')){ require_once(engine::domain() . '/app.config'); }
+		
+		// Record that we are switched on
+		self::$on = TRUE;
+	}
+	
 	static function go($path = ''){
+		if(!self::$on){
+			self::init();
+		}
 		// Scan and find a list of directories to process
 		self::$directories = self::findBaseDirectories();
 		if(isset($_GET['_debug'])){ print "<pre><code>" . print_r(self::$directories,TRUE) . "</code></pre>";}
@@ -238,8 +262,10 @@ class engine {
 	}
 
 	static function redirect($url,$status = 303){
-		header("Location: " . "$url",TRUE,$status);
-		die();
+		if(stripos($url,'http') === 0){ $url = self::domain() . "/$url"; }
+		header("Location: $url",TRUE,$status);
+		print "Location $url";
+		exit;
 	}
 
 	static function basehref($HTML = FALSE){

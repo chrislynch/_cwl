@@ -3,6 +3,8 @@
 $sidebars = array();
 $footers = array();
 
+$sidebars['Kickstarter'] = '<iframe src="https://www.kickstarter.com/projects/1420988797/batman-the-exorcism-of-bruce-wayne-original-fan-fi/widget/card.html?v=2" width="100%" height="420" frameborder="0" scrolling="no"></iframe><br><br>';
+
 $sidebars['Twitter'] = '<a class="twitter-timeline" href="https://twitter.com/cwlynch_mwm">Tweets by cwlynch_mwm</a> <script async src="//platform.twitter.com/widgets.js" charset="utf-8"></script>';  
 
 /*

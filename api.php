@@ -7,8 +7,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
 	<meta name="apple-mobile-web-app-capable" content="yes"/>
 	<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
-  <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js"></script>
-  <script src="http://ajax.googleapis.com/ajax/libs/jqueryui/1.8.16/jquery-ui.min.js"></script>
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js"></script>
+  <script src="https://ajax.googleapis.com/ajax/libs/jqueryui/1.8.16/jquery-ui.min.js"></script>
   <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-1q8mTJOASx8j1Au+a5WDVnPi2lkFfwwEAa8hDDdjZlpLegxhjVME1fgjWPGmkzs7" crossorigin="anonymous">
 	<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js" integrity="sha384-0mSbJDEHialfmuBBQP6A4Qrprq5OVfW37PRR3j5ELqxss1yVqOtnepnHVP9aJ7xS" crossorigin="anonymous"></script>
 	<link href="https://maxcdn.bootstrapcdn.com/font-awesome/4.6.3/css/font-awesome.min.css" rel="stylesheet" />
@@ -23,7 +23,7 @@
 	</div>
 	<div class='row'>
 		<div class='col-xs-12 col-sm-8'>
-			URL: <input type="text" id="url" name="url" value="http://cto.poweredbygravit-e.co.uk/blog/api.php" style="width:80%"><br/>
+			URL: <input type="text" id="url" name="url" value="https://www.cwlynch.com/api.php" style="width:80%"><br/>
 		</div>
 		<div class='col-xs-12 col-sm-4'>
 			Method: 
@@ -99,7 +99,7 @@
 * Here beginneth the API proper
 */
 
-include('cwl.php');
+include('_cwl/cwl.php');
 
 $method = $_SERVER['REQUEST_METHOD'];
 
@@ -135,8 +135,14 @@ function api_post(){
   $objFormat = FALSE;
 
   // Sort out ` formatting in JSON posts.
-  $post = str_ireplace('"','\"',$post);
-  $post = str_ireplace('`','"',$post);
+	if(strstr($post,"`")){
+		$post = str_ireplace('"','\"',$post);
+  	$post = str_ireplace('`','"',$post);	
+	}
+  $post = str_ireplace("\n","",$post);
+	
+	print_r($post); print "<br><br>";
+	file_put_contents('_private/ifttt.log',$post);
   
   // Try to work out what type of object we have
   $postobj = json_decode($post);
@@ -147,7 +153,9 @@ function api_post(){
   // If we got to an object, save the object
   if(is_object($postobj)){
     $guid = cwl\nosql::save($postobj);
-  }
+  } else {
+		print json_last_error_msg() . "<br>";
+	}
   
   print_r($postobj);
 
@@ -177,7 +185,7 @@ function api_get_rss(){
 <channel>
   <title>RSS Feed</title>
   <link>' . cwl\engine::url()  . '</link>
-  <description>RSS Feed for ' . cwl\engine::url() . '</description>\n';
+  <description>RSS Feed for ' . cwl\engine::url() . '</description>';
 	
 	foreach($results as $result){
 		if(!(stripos(trim($result['uri']),'http') === 0)){
@@ -186,8 +194,19 @@ function api_get_rss(){
 		print '<item>
 			<guid>' . $result['uri'] . '</guid>		
 			<title>' . $result['name'] . '</title>
-			<link>' . $result['uri'] . '</link>
-  	</item>';
+			<link>' . $result['uri'] . '</link>';
+		
+		$item = cwl\nosql::load($result['guid']);
+		
+		print '<description>' . $item->excerpt . '</description>';
+		
+		if(strlen($item->media) > 0){
+			
+		} elseif(isset($result[''])) {
+			
+		}
+		
+		print '</item>';
 	}
   	
 	print '

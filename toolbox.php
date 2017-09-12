@@ -218,15 +218,20 @@ class toolbox {
         }
       }
 			print '<button name="do" value="save" type="submit" class="btn btn-primary" style="margin-left:auto; margin-top: 8px">Save</button><hr>';  
-    	print "</fieldset></form>";  
+    	print "</fieldset></form>";
     }
-    
+		
 		/*
 		$printr = print_r($obj,TRUE);
 		$rows = substr_count( $printr, "\n" ) + 2;
     print "<textarea rows='$rows'>" . print_r($obj,TRUE) . "</textarea>";
 		*/
 		print "<pre>" . print_r($obj,TRUE) . "</pre>";
+		
+		print '<form action="toolbox.php?do=delete&_debug" method="POST" enctype="multipart/form-data" class="form-horizontal"><fieldset>';
+		print '<input type="hidden" name="guid" value="' . $obj->guid . '">';
+		print '<button name="do" value="save" type="submit" class="btn btn-warning" style="margin-left:auto; margin-top: 8px">Delete</button><hr>';
+		print '</fieldset></form>';
   }
   
   static function validate(&$obj){
@@ -260,6 +265,13 @@ class toolbox {
 		
 		self::editor($obj);
   }
+	
+	static function delete(){
+		if(isset($_POST['guid'])){
+			cwl\nosql::delete($_POST['guid']);
+		}
+		toolbox::home();
+	}
   
   static function error($errorTitle){
     print '<div class="alert alert-dismissible alert-danger">
@@ -341,6 +353,7 @@ class toolbox {
                 case 'create': toolbox::create(); break;
                 case 'edit': toolbox::edit($_GET['guid']); break;
                 case 'save': toolbox::save(); break;
+								case 'delete': toolbox::delete(); break;
 								case 'purge': toolbox::purge(); break;
 								case 'logout': toolbox::lock(); cwl\engine::redirect('toolbox.php'); break;
                 default:

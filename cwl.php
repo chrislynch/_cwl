@@ -41,20 +41,14 @@ if(isset($_GET['_debug'])){
 	error_reporting(-1);
 	ini_set('display_errors', 1);
 	ini_set('display_startup_errors',1);
-	\cwl\engine::$debug = TRUE;
+	engine::$debug = TRUE;
 } else {
 	error_reporting(0);
 	ini_set('display_errors', 0);	
 	ini_set('display_startup_errors',0);
-	\cwl\engine::$debug = FALSE;
+	engine::$debug = FALSE;
 }
 
-if(file_exists('config.php')){
-	include('config.php');
-}
-
-
-
-
+engine::init();
 
 ?>

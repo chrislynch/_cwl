@@ -7,8 +7,8 @@ if(strlen(@$result->image[0]) == 0){
   
 switch($result->format){
   case 'aside':
+  case 'social':
     ?>
-<div class='row'><div class='col-xs-12'><h4><?= $result->name; ?></h4></div></div>
 <div class='row'>
   <div class='col-xs-12'>
     <?= $result->html ?>
@@ -17,6 +17,22 @@ switch($result->format){
     </div>
   </div>
 </div>
+  <?php
+    break;
+  case 'video':
+    ?>
+  <div class='row'><div class='col-xs-12'><h4><a href='<?= $result->uri ?>'><?= $result->name; ?></a></h4></div></div>
+    <div class='row'>
+    <div class='col-xs-12'>
+      <?php print media($result); ?>
+    </div>
+    <div class='col-xs-12'>
+      <?= $result->html ?>
+      <div class='meta'>
+        <?= $result->meta ?>
+      </div>
+    </div>
+  </div>
   <?php
     break;
   case 'image':

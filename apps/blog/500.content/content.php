@@ -62,7 +62,12 @@ if(strlen(trim(@$_GET['q'])) > 0){
   $outputmode = 3;
 }
 
+$hasResults = FALSE;
+
 while($result = $query->fetch()){
+  // Raise item flag
+  $hasResults = TRUE;
+  
   // Load result
   $result = cwl\nosql::load($result['guid']);
   
@@ -112,6 +117,14 @@ while($result = $query->fetch()){
   }
   
   $results[] = $result;
+}
+
+if(!$hasResults){
+  http_response_code(404);
+  $results = array();
+  $results[0] = new cwl\noSQLstdClass();
+  $results[0]->name = 'Page not found';
+  $results[0]->html = "<p>Sorry, looks like we couldn't find the page you were looking for. You probably want to <a href=''>go to the homepage</a></p>";
 }
 
 include('_templates/widgets.inc');
@@ -342,3 +355,54 @@ include('_templates/widgets.inc');
     </div>
   </body>
 </html>
+
+
+<?php
+  function media($result){
+    $string     = $result->media;
+    $search     = '/www.youtube\.com\/watch\?v=([a-zA-Z0-9-]+)/smi';
+    $replace    = "<div class='class='embed-responsive embed-responsive-16by9'><iframe width='100%' height='420' src='https://youtube.com/embed/$1' frameborder='0' allowfullscreen></iframe><br><br></div>";
+    $content    = preg_replace($search,$replace,$string);
+    $content    = explode('<div',$content);
+    $content    = "<div" . array_pop($content);
+    return $content;
+  }
+  
+  function gallery($result){
+  ?>
+    <div id="myCarousel" class="carousel slide" data-ride="carousel">
+      <!-- Indicators -->
+      <!--
+      <ol class="carousel-indicators">
+        <li data-target="#myCarousel" data-slide-to="0" class="active"></li>
+        <li data-target="#myCarousel" data-slide-to="1"></li>
+        <li data-target="#myCarousel" data-slide-to="2"></li>
+      </ol>
+
+      <!-- Wrapper for slides -->
+      <div class="carousel-inner">
+      <?php
+        $active = ' active';
+        foreach($result->image as $image){
+          print '<div class="item' . $active . '">';
+          print '<img src="' . $image . '">';
+          print '</div>';
+          $active = '';
+        }
+      ?>
+      </div>
+
+      <!-- Left and right controls -->
+      <a class="left carousel-control" href="#myCarousel" data-slide="prev">
+        <span class="glyphicon glyphicon-chevron-left"></span>
+        <span class="sr-only">Previous</span>
+      </a>
+      <a class="right carousel-control" href="#myCarousel" data-slide="next">
+        <span class="glyphicon glyphicon-chevron-right"></span>
+        <span class="sr-only">Next</span>
+      </a>
+    </div><br><br>
+    <script>$("#myCarousel").carousel();</script>
+  <?php
+  }
+?>
